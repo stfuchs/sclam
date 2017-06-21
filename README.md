@@ -1,2 +1,2 @@
 # sclam
-Simultanious calibration, localization and mapping for ROS
+Simultaneous calibration, localization and mapping for ROS
