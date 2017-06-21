@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package>
+  <name>sclam</name>
+  <version>0.0.0</version>
+  <description>The sclam package</description>
+
+  <maintainer email="steffen.fuchs2@de.bosch.com">Steffen Fuchs</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+
+  <export>
+  </export>
+</package>
