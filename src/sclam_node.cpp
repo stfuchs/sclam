@@ -132,6 +132,15 @@ public:
 
     _optimizer.addVertex(_curr_pose->createVertex(++_last_id));
     _last_pose = _curr_pose;
+
+    g2o::EdgeSE3PointXYZ* observation = new g2o::EdgeSE3PointXYZ;
+    observation->vertices()[0] = _optimizer.vertex(_last_pose->id());
+    observation->vertices()[1] = _optimizer.vertex(_landmarks[id]->id());
+    //observation->setMeasurement();
+    //observation->setInformation();
+    _optimizer.addEdge(observation);
+
+    // odom
     return;
   }
 

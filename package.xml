@@ -9,6 +9,8 @@
 
   <buildtool_depend>catkin</buildtool_depend>
 
+  <build_depend>ar_track_alvar</build_depend>
+  <run_depend>ar_track_alvar</run_depend>
 
   <export>
   </export>
