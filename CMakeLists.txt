@@ -4,10 +4,17 @@ project(sclam)
 add_definitions(-std=c++11)
 
 find_package(catkin REQUIRED
-  #  message_generation
-  roscpp
+  ar_track_alvar_msgs
   geometry_msgs
-  visualization_msgs)
+  message_filters
+  message_generation
+  nav_msgs
+  roscpp
+  std_msgs
+  std_srvs
+  tf2_ros
+  visualization_msgs
+)
 
 find_package(g2o REQUIRED)
 
@@ -15,12 +22,11 @@ find_package(g2o REQUIRED)
 ## Uncomment this if the package has a setup.py.
 # catkin_python_setup()
 
-## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+# Generate messages in the 'msg' folder
+add_message_files(
+  FILES
+  Observation.msg
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -36,11 +42,12 @@ find_package(g2o REQUIRED)
 #   Action2.action
 # )
 
-## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+# Generate added messages and services with any dependencies listed here
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
 
 catkin_package(
   INCLUDE_DIRS include
@@ -56,6 +63,11 @@ include_directories(include
 
 add_executable(${PROJECT_NAME}_node src/sclam_node.cpp)
 
+add_dependencies(${PROJECT_NAME}_node
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${g2o_core_LIBRARY}
@@ -64,6 +76,17 @@ target_link_libraries(${PROJECT_NAME}_node
   ${g2o_csparse_extension_LIBRARY}
   ${g2o_solver_csparse_LIBRARY}
   ${g2o_types_slam3d_LIBRARY}
+)
+
+add_executable(alvar_marker_observer_node src/alvar_marker_observer_node.cpp)
+
+add_dependencies(alvar_marker_observer_node
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+
+target_link_libraries(alvar_marker_observer_node
+  ${catkin_LIBRARIES}
 )
 
 ## Mark executable scripts (Python etc.) for installation

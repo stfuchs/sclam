@@ -1,164 +1,155 @@
 #include <ros/ros.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <g2o/core/sparse_optimizer.h>
-#include <g2o/core/block_solver.h>
-#include <g2o/core/optimization_algorithm_gauss_newton.h>
-#include <g2o/solvers/csparse/linear_solver_csparse.h>
-#include <g2o/types/slam3d/edge_se3.h>
-#include <g2o/types/slam3d/edge_se3_pointxyz.h>
-#include <g2o/types/slam3d/vertex_se3.h>
-#include <g2o/types/slam3d/vertex_pointxyz.h>
+#include <tf2_ros/transform_listener.h>
+#include <std_srvs/Trigger.h>
 
-class RobotNode
+#include <sclam/Observation.h>
+#include <sclam/sclam.h>
+
+class SclamNode
 {
 public:
-  RobotNode()
-    : _id(-1), _q(0,0,0,1), _t(0,0,0) {}
+  SclamNode()
+    : sclam_()
+    , active_(false)
+    , nh_()
+    , nh_priv_("~")
+  {}
 
-  RobotNode(double x, double y, double z, double qx, double qy, double qz, double qw)
-    : _id(-1), _q(qx,qy,qz,qw), _t(0,0,0) {}
+  ~SclamNode() {}
 
-  RobotNode(const geometry_msgs::Pose& pose)
-    : _id(-1)
-    , _q(pose.orientation.x,
-         pose.orientation.y,
-         pose.orientation.z,
-         pose.orientation.w)
-    , _t(pose.position.x,
-         pose.position.y,
-         pose.position.z) {}
-
-  ~RobotNode() {}
-
-  int id() const { return _id; }
-
-  const Eigen::Vector3d& translation() const { return _t; }
-  const Eigen::Quaterniond& rotation() const { return _q; }
-
-  Eigen::Vector3d operator * (const Eigen::Vector3d& v) const
+  bool configure()
   {
-    return _q*v + _t;
-  }
+    ROS_INFO("%s::configure() requested.", nh_priv_.getNamespace().c_str());
+    sclam_.reset(new Sclam());
 
-  g2o::VertexSE3* createVertex(int id)
-  {
-    _id = id;
-    g2o::Isometry3D est;
-    est = _q.toRotationMatrix();
-    est.translation() = _t;
+    nh_priv_.param<std::string>(
+      "filename_graph_before", filename_before_, "/tmp/before.g2o");
+    nh_priv_.param<std::string>(
+      "filename_graph_after", filename_after_, "/tmp/after.g2o");
+    nh_priv_.param<std::string>("base_frame_id", base_frame_id_, "base_link");
+    nh_priv_.param<std::map<std::string,std::string> >("sensors", sensors_);
 
-    g2o::VertexSE3* robot = new g2o::VertexSE3;
-    robot->setId(_id);
-    robot->setEstimate(est);
-    return robot;
-  }
+    tf_buffer_.reset(new tf2_ros::Buffer(ros::Duration(10)));
+    tf_listener_.reset(new tf2_ros::TransformListener(*tf_buffer_));
 
-private:
-  int _id;
-  Eigen::Quaterniond _q;
-  Eigen::Vector3d _t;
-};
+    ros::Rate(0.5).sleep(); // make the buffer fill up
 
-class LandmarkNode
-{
-public:
-  LandmarkNode()
-    : _id(-1), _t(0,0,0) {}
-  LandmarkNode(const geometry_msgs::Point& obs, const RobotNode& robot)
-    : _id(-1), _t(robot * Eigen::Vector3d(obs.x, obs.y, obs.z)) {}
+    std::vector<Sensor::Ptr> sensors;
 
-  ~LandmarkNode() {}
-
-  int id() const { return _id; }
-  const Eigen::Vector3d& translation() const { return _t; }
-
-  g2o::VertexPointXYZ* createVertex(int id)
-  {
-    _id = id;
-    g2o::VertexPointXYZ* landmark = new g2o::VertexPointXYZ;
-    landmark->setId(_id);
-    landmark->setEstimate(_t);
-    return landmark;
-  }
-
-private:
-  int _id;
-  Eigen::Vector3d _t;
-};
-
-class Sclam
-{
-public:
-
-  Sclam()
-    : _last_id(-1)
-    , _last_pose(new RobotNode)
-    , _curr_pose(new RobotNode)
-    , _landmarks(16) {}
-
-  ~Sclam() {}
-
-  void init()
-  {
-    typedef g2o::BlockSolver< g2o::BlockSolverTraits<-1, -1> > SclamBlockSolver;
-    typedef g2o::LinearSolverCSparse<SclamBlockSolver::PoseMatrixType> SclamLinearSolver;
-
-    // allocate optimizer (optimizer takes over ownership of resources)
-    SclamLinearSolver* linear_solver = new SclamLinearSolver();
-    linear_solver->setBlockOrdering(false);
-    SclamBlockSolver* block_solver = new SclamBlockSolver(linear_solver);
-    g2o::OptimizationAlgorithmGaussNewton* solver =
-      new g2o::OptimizationAlgorithmGaussNewton(block_solver);
-    _optimizer.setAlgorithm(solver);
-    _optimizer.addVertex(_last_pose->createVertex(++_last_id));
-  }
-
-  void update_pose(const geometry_msgs::Pose& pose)
-  {
-    _curr_pose.reset(new RobotNode(pose));
-  }
-
-  void add_observation(const geometry_msgs::Point& pos, int id)
-  {
-    if (int(_landmarks.size()) <= id)
+    for (auto it=sensors_.begin(); it!=sensors_.end(); ++it)
     {
-      _landmarks.resize(id+1);
-    }
-    if (!_landmarks[id])
-    {
-      _landmarks[id].reset(new LandmarkNode(pos, *_curr_pose));
-      _optimizer.addVertex(_landmarks[id]->createVertex(++_last_id));
+      Sensor::TypeId tid = Sensor::parseType(it->second);
+      if (tid != Sensor::TYPE_ID_UNDEF)
+      {
+        Pose::Ptr pose;
+        if (_tfLookup(it->first, pose))
+        {
+          sensors.push_back(Sensor::Ptr(new Sensor(it->first, tid, pose)));
+        }
+      }
+      else
+      {
+        ROS_ERROR_STREAM("Invalid sensor_type: " << it->second);
+      }
     }
 
-    _optimizer.addVertex(_curr_pose->createVertex(++_last_id));
-    _last_pose = _curr_pose;
+    sclam_->init(sensors);
 
-    g2o::EdgeSE3PointXYZ* observation = new g2o::EdgeSE3PointXYZ;
-    observation->vertices()[0] = _optimizer.vertex(_last_pose->id());
-    observation->vertices()[1] = _optimizer.vertex(_landmarks[id]->id());
-    //observation->setMeasurement();
-    //observation->setInformation();
-    _optimizer.addEdge(observation);
+    sub_obs_ = nh_.subscribe("observation", 10, &SclamNode::_cbSub, this);
+    srv_optimize_ = nh_priv_.advertiseService("optimize", &SclamNode::_cbSrv, this);
 
-    // odom
-    return;
+    return true;
+  }
+
+  bool activate()
+  {
+    ROS_INFO("%s::activate() requested.", nh_priv_.getNamespace().c_str());
+    active_ = true;
+    return active_;
+  }
+
+  bool deactivate()
+  {
+    ROS_INFO("%s::deactivate() requested.", nh_priv_.getNamespace().c_str());
+    active_ = false;
+    return !active_;
+  }
+
+  bool cleanup()
+  {
+    ROS_INFO("%s::cleanup() requested.", nh_priv_.getNamespace().c_str());
+    active_ = false;
+    sub_obs_.shutdown();
+    tf_listener_.reset();
+    tf_buffer_.reset();
+    sclam_.reset();
+    sensors_.clear();
+    return true;
   }
 
 private:
-  int _last_id;
-  g2o::SparseOptimizer _optimizer;
-  std::shared_ptr<RobotNode> _last_pose;
-  std::shared_ptr<RobotNode> _curr_pose;
-  std::vector<std::shared_ptr<LandmarkNode> > _landmarks;
+  void _cbSub(const sclam::Observation& msg)
+  {
+    if (!active_) return;
+
+    sclam_->update(msg.robot,msg.measurement,msg.header.frame_id,msg.landmark_id);
+  }
+
+  bool _cbSrv(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
+  {
+    if (!active_)
+    {
+      res.success = false;
+      return res.success;
+    }
+    sclam_->optimize(filename_before_, filename_after_);
+    res.success = true;
+    return res.success;
+  }
+
+  bool _tfLookup(const std::string& source_frame_id, Pose::Ptr& pose) const
+  {
+    geometry_msgs::Transform tf;
+    try
+    {
+      tf = tf_buffer_->lookupTransform(
+        base_frame_id_, // target frame
+        source_frame_id, // source frame
+        ros::Time(0)).transform;
+    }
+    catch (tf2::TransformException &ex)
+    {
+      ROS_ERROR("%s", ex.what());
+      return false;
+    }
+    pose.reset(new Pose(tf));
+    return true;
+  }
+
+  std::unique_ptr<Sclam> sclam_;
+
+  bool active_;
+
+  ros::NodeHandle nh_;
+  ros::NodeHandle nh_priv_;
+
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  std::string filename_before_;
+  std::string filename_after_;
+  std::string base_frame_id_;
+  std::map<std::string,std::string> sensors_;
+
+  ros::Subscriber sub_obs_;
+  ros::ServiceServer srv_optimize_;
 };
 
 int main(int argc, char** argv)
 {
   ros::init(argc, argv, "sclam_node");
-  ros::NodeHandle nh;
-
-  Sclam node;
-  node.init();
-
+  SclamNode node;
+  node.configure();
+  node.activate();
   ros::spin();
 };

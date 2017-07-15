@@ -1,0 +1,37 @@
+<launch>
+  <arg name="marker_size" default="8" />
+  <arg name="max_new_marker_error" default="0.08" />
+  <arg name="max_track_error" default="0.2" />
+  <arg name="cam_image_topic" default="/webcam/image_raw" />
+  <arg name="cam_info_topic" default="/webcam/camera_info" />
+  <arg name="output_frame" default="webcam_optical_frame" />
+  <arg name="bundle_files" default="$(find sclam)/marker/MarkerData_0_1_2_3.xml
+                                    $(find sclam)/marker/MarkerData_4_5_6_7.xml" />
+
+  <node type="findMarkerBundlesNoKinect" pkg="ar_track_alvar" name="marker_tracker"
+        respawn="false" output="screen"
+        args="$(arg marker_size)
+              $(arg max_new_marker_error)
+              $(arg max_track_error)
+              $(arg cam_image_topic)
+              $(arg cam_info_topic)
+              $(arg output_frame)
+              $(arg bundle_files)">
+    <remap from="ar_pose_marker" to="alvar_markers" />
+  </node>
+
+  <node type="alvar_marker_observer_node" pkg="sclam"
+        name="alvar_marker_observer_node" respawn="false" output="screen">
+    <remap from="observation" to="observation" />
+    <remap from="odom" to="odom" />
+    <remap from="alvar_markers" to="alvar_markers" />
+  </node>
+
+  <node type="sclam_node" pkg="sclam"
+        name="sclam_node" respawn="false" output="screen">
+    <remap from="observation" to="observation" />
+
+    <rosparam command="load" file="$(find sclam)/config/default.yaml" />
+  </node>
+
+</launch>
