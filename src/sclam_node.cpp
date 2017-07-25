@@ -23,14 +23,18 @@ public:
     sclam_.reset(new Sclam());
 
     nh_priv_.param<std::string>(
-      "filename_graph_before", filename_before_, "/tmp/before.g2o");
+      "filename_graph_before", filename_before_, "/tmp/before_lbub.g2o");
     nh_priv_.param<std::string>(
-      "filename_graph_after", filename_after_, "/tmp/after.g2o");
-    nh_priv_.param<std::string>("base_frame_id", base_frame_id_, "base_link");
-    nh_priv_.param<std::map<std::string,std::string> >("sensors", sensors_);
+      "filename_graph_after", filename_after_, "/tmp/after_bub.g2o");
+    nh_priv_.param<std::string>("base_frame_id", base_frame_id_, "blub");
+    nh_priv_.getParam("sensors", sensors_);
+
 
     tf_buffer_.reset(new tf2_ros::Buffer(ros::Duration(10)));
     tf_listener_.reset(new tf2_ros::TransformListener(*tf_buffer_));
+
+    pub_vis_ = nh_priv_.advertise<visualization_msgs::MarkerArray>(
+      "vertex_markers", 1);
 
     ros::Rate(0.5).sleep(); // make the buffer fill up
 
@@ -39,6 +43,9 @@ public:
     for (auto it=sensors_.begin(); it!=sensors_.end(); ++it)
     {
       Sensor::TypeId tid = Sensor::parseType(it->second);
+      ROS_INFO_STREAM("Request to add sensor "
+                      << it->first << " - " << it->second
+                      << " (type: " << tid << ")");
       if (tid != Sensor::TYPE_ID_UNDEF)
       {
         Pose::Ptr pose;
@@ -93,6 +100,9 @@ private:
     if (!active_) return;
 
     sclam_->update(msg.robot,msg.measurement,msg.header.frame_id,msg.landmark_id);
+    visualization_msgs::MarkerArray ma;
+    sclam_->draw(ma, "before");
+    pub_vis_.publish(ma);
   }
 
   bool _cbSrv(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
@@ -103,6 +113,11 @@ private:
       return res.success;
     }
     sclam_->optimize(filename_before_, filename_after_);
+
+    visualization_msgs::MarkerArray ma;
+    sclam_->draw(ma, "after");
+    pub_vis_.publish(ma);
+
     res.success = true;
     return res.success;
   }
@@ -143,6 +158,7 @@ private:
 
   ros::Subscriber sub_obs_;
   ros::ServiceServer srv_optimize_;
+  ros::Publisher pub_vis_;
 };
 
 int main(int argc, char** argv)

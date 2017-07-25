@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(sclam)
 
 add_definitions(-std=c++11)
+set(CMAKE_BUILD_TYPE Debug)
 
 find_package(catkin REQUIRED
   ar_track_alvar_msgs

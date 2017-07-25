@@ -13,6 +13,7 @@
 
 #include <sclam/pose.h>
 #include <sclam/sensor.h>
+#include <sclam/visualization.h>
 
 class Sclam
 {
@@ -45,6 +46,7 @@ public:
     SclamBlockSolver* block_solver = new SclamBlockSolver(linear_solver);
     g2o::OptimizationAlgorithmGaussNewton* solver =
       new g2o::OptimizationAlgorithmGaussNewton(block_solver);
+    _optimizer.setVerbose(true);
     _optimizer.setAlgorithm(solver);
 
     for (auto it=sensors.begin(); it!=sensors.end(); ++it)
@@ -75,13 +77,16 @@ public:
         1.0, "Requested update for unknown sensor: " << frame_id);
       return;
     }
-
+    ROS_INFO_STREAM("update sensor data: " << sensor->frameId() << " "
+                    << sensor->typeName());
     // odom
     _curr_robot.reset(new Pose(robot_msg));
     g2o::VertexSE3* robot_node = new g2o::VertexSE3;
     robot_node->setId(_curr_robot->id(++_last_id));
     robot_node->setEstimate(_curr_robot->transform());
     _optimizer.addVertex(robot_node);
+
+    ROS_INFO_STREAM("added robot vertex " << _curr_robot->id());
 
     g2o::EdgeSE3* odometry = new g2o::EdgeSE3;
     odometry->vertices()[0] = _optimizer.vertex(_last_robot->id());
@@ -90,15 +95,16 @@ public:
     odometry->setInformation(_curr_robot->information());
     _optimizer.addEdge(odometry);
 
+    ROS_INFO_STREAM("added odom edge " << _last_robot->id() << " - " << _curr_robot->id());
     // observation
     Pose::Ptr curr_obs(new Pose(landm_msg));
     switch( sensor->typeId() )
     {
     case Sensor::TYPE_ID_SE3:
-      _add<Sensor::SE3>(sensor, _landmarks[landm_id], _curr_robot, curr_obs);
+      _add<Sensor::SE3>(sensor, _curr_robot, curr_obs, _landmarks[landm_id]);
       break;
     case Sensor::TYPE_ID_POINT3:
-      _add<Sensor::POINT3>(sensor, _landmarks[landm_id], _curr_robot, curr_obs);
+      _add<Sensor::POINT3>(sensor, _curr_robot, curr_obs, _landmarks[landm_id]);
       break;
     default:
       // this should not happen
@@ -115,12 +121,19 @@ public:
   {
     ROS_INFO_STREAM("Optimizing. Saving initial state to " << filename_before);
     _optimizer.save(filename_before.c_str());
-    _optimizer.setVerbose(true);
     _optimizer.initializeOptimization();
     _optimizer.optimize(10);
 
     ROS_INFO_STREAM("Done. Saving result state to " << filename_after);
     _optimizer.save(filename_after.c_str());
+  }
+
+  void draw(visualization_msgs::MarkerArray& ma, const std::string& ns)
+  {
+    for (auto it=_optimizer.vertices().begin(); it!=_optimizer.vertices().end(); ++it)
+    {
+      ma.markers.push_back(toMarker(it->second, ns));
+    }
   }
 
 private:
@@ -137,6 +150,8 @@ private:
       landmark_node->setId(landmark->id(++_last_id));
       landmark_node->setEstimate(SensorT::get_estimate(landmark));
       _optimizer.addVertex(landmark_node);
+
+      ROS_INFO_STREAM("added landmark vertex " << landmark->id());
     }
 
     typename SensorT::edge_type* observation = new typename SensorT::edge_type;
@@ -146,6 +161,8 @@ private:
     observation->setInformation(SensorT::get_information(measurement));
     observation->setParameterId(0, sensor->id());
     _optimizer.addEdge(observation);
+
+    ROS_INFO_STREAM("added landmark edge " << robot->id() << " - " << landmark->id());
   }
 
 private:

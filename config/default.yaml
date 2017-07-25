@@ -1,6 +1,6 @@
-sclam_node:
-  filename_graph_before: "/tmp/before.g2o"
-  filename_graph_after: "/tmp/after.g2o"
-  base_frame_id: base_link
-  sensors:
-    webcam_optical_link: SE3
+filename_graph_before: "/tmp/before.g2o"
+filename_graph_after: "/tmp/after.g2o"
+base_frame_id: base_link
+sensors:
+  camA_jai_optical_frame: SE3
+  camB_jai_optical_frame: SE3

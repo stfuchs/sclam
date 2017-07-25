@@ -3,6 +3,11 @@
 
 #include <Eigen/Geometry>
 
+#include <g2o/types/slam3d/edge_se3.h>
+#include <g2o/types/slam3d/edge_se3_pointxyz.h>
+#include <g2o/types/slam3d/vertex_se3.h>
+#include <g2o/types/slam3d/vertex_pointxyz.h>
+
 #include <ros/ros.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/Transform.h>
@@ -10,6 +15,34 @@
 namespace Eigen
 {
   typedef Matrix<double, 6, 6> Matrix6d;
+}
+
+template<typename T1, typename T2>
+inline void toROS(const T1& in, T2& out)
+{
+  out = in;
+}
+
+template<>
+inline void toROS<Eigen::Vector3d, geometry_msgs::Point>(
+  const Eigen::Vector3d& in, geometry_msgs::Point& out)
+{
+  out.x = in(0); out.y = in(1); out.z = in(2);
+}
+
+template<>
+inline void toROS<Eigen::Quaterniond, geometry_msgs::Quaternion>(
+  const Eigen::Quaterniond& in, geometry_msgs::Quaternion& out)
+{
+  out.x = in.x(); out.y = in.y(); out.z = in.z(); out.w = in.w();
+}
+
+template<>
+inline void toROS<Eigen::Isometry3d, geometry_msgs::Pose>(
+  const Eigen::Isometry3d& in, geometry_msgs::Pose& out)
+{
+  toROS(Eigen::Vector3d(in.translation()), out.position);
+  toROS(Eigen::Quaterniond(in.rotation()), out.orientation);
 }
 
 class Pose
